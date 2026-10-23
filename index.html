@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PHP2Shell | CVE-2026-109618 &amp; CVE-2026-109619</title>
+  <meta name="description" content="PHP2Shell: CVE-2026-109618 and CVE-2026-109619 — heap use-after-free RCE in PHP session.upload_progress. 5 exploit chains, detection rules, and remediation. Central resource by CyberSunil.">
+  <meta name="author" content="CyberSunil">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- Top bar -->
+  <nav class="topbar">
+    <div class="topbar-inner">
+      <span class="logo">PHP2SHELL</span>
+      <div class="nav-links">
+        <a href="#about">About</a>
+        <a href="#chains">Exploit Chains</a>
+        <a href="#detection">Detection</a>
+        <a href="#learning">Learning</a>
+        <button class="share-btn" onclick="navigator.clipboard.writeText(window.location.href)">&#8618; SHARE</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Progress bar -->
+  <div class="progress-bar" id="progressBar"></div>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-inner">
+      <div class="hero-left">
+        <div class="badges">
+          <span class="badge badge-red">&#9888; CVSS 9.2 &middot; CRITICAL</span>
+          <span class="badge">&#9881; HEAP UAF</span>
+          <span class="badge">&#9002;_ PRE-AUTH RCE</span>
+        </div>
+        <h1 class="hero-title glitch" data-text="Your PHP Server Just Became a Shell.">
+          Your PHP Server<br>
+          Just Became a<br>
+          <span class="red">Shell.</span>
+        </h1>
+        <p class="hero-sub">
+          PHP2Shell is the collective name for two critical pre-authentication remote code execution vulnerabilities in the PHP core: <strong>CVE-2026-109618</strong> and <strong>CVE-2026-109619</strong>. A heap use-after-free in <code>session.upload_progress</code> lets unauthenticated attackers achieve arbitrary code execution on roughly 78% of all websites. Five independent exploit chains exist. This is the central resource for learning, detection, and remediation.
+        </p>
+        <div class="hero-meta">
+          <span class="meta-name">Sunil Tripathy</span>
+          <span class="meta-handle">(CyberSunil)</span>
+          <span class="meta-role">Independent Security Researcher</span>
+          <span class="meta-date">23 October 2026</span>
+        </div>
+        <p class="hero-disclosure">Defensive security research &amp; detection methodology</p>
+      </div>
+      <div class="hero-right">
+        <div class="hero-orb"></div>
+        <div class="terminal-window">
+          <div class="terminal-header">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-yellow"></span>
+            <span class="dot dot-green"></span>
+            <span class="terminal-title">
+              <span class="term-chev">&#8250;</span> root@sunilawesome
+              <span class="term-path">~/php2shell</span>
+            </span>
+            <span class="terminal-status">LIVE</span>
+          </div>
+          <div class="terminal-body" id="terminalBody">
+            <div class="terminal-logo">
+              <canvas id="phpLogoCanvas"></canvas>
+              <img src="assets/php-logo.svg" alt="Official PHP Logo" class="terminal-php-logo">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ABOUT / OVERVIEW -->
+  <section id="about" class="section">
+    <div class="container">
+      <div class="section-label">--- OVERVIEW</div>
+      <h2 class="section-title">What is PHP2Shell?</h2>
+      <p class="section-desc">
+        PHP2Shell refers to <strong>CVE-2026-109618</strong> and <strong>CVE-2026-109619</strong>, two pre-authentication RCE flaws in the PHP core session upload progress mechanism. The vulnerability was disclosed prematurely and carries a CVSS v4.0 score of 9.2 (Critical).
+      </p>
+
+      <div class="card-grid">
+        <div class="card">
+          <h3>CVE-2026-109618 — OOM Corruption</h3>
+          <p>An out-of-memory condition where a <code>longjmp()</code> call corrupts the Zend engine state. When memory limits are exceeded during multipart upload processing, the engine jumps to an error handler while leaving dangling references in the session HashTable. This enables arbitrary code execution without any application-level bug — a zero-dependency pre-auth RCE against any Apache mod_php installation.</p>
+        </div>
+        <div class="card">
+          <h3>CVE-2026-109619 — Use-After-Free</h3>
+          <p>The RFC 1867 upload handler in <code>ext/session/session.c</code> stores raw <code>zval*</code> pointers into the session's HashTable for tracking upload progress. When an upload pauses beyond the minimum frequency threshold, a subsequent event reinitializes the session and calls <code>zend_array_destroy()</code>, freeing the array while cached pointers remain. Later writes dereference freed memory — a classic heap use-after-free leading to code execution.</p>
+        </div>
+      </div>
+
+      <div class="vuln-mechanism">
+        <div class="mech-head">
+          <span class="mech-dots"><i></i><i></i><i></i></span>
+          <span class="mech-file">ext/session/session.c &mdash; php_session_rfc1867_callback()</span>
+          <span class="mech-tag">ROOT CAUSE</span>
+        </div>
+        <div class="mech-code">
+          <div class="mech-line"><span class="ln">1</span><span class="cmt">// RFC 1867 upload-progress callback caches a raw pointer</span></div>
+          <div class="mech-line"><span class="ln">2</span><span class="fn">ZVAL_LONG</span>(&amp;tmp, <span class="num">0</span>);</div>
+          <div class="mech-line"><span class="ln">3</span><span class="fn">zend_hash_str_update</span>(<span class="fn">Z_ARRVAL_P</span>(post_bytes_processed), ..., &amp;tmp);</div>
+          <div class="mech-line"><span class="ln">4</span><span class="cmt">// &larr; cached zval* now lives inside the session HashTable</span></div>
+          <div class="mech-line"><span class="ln">5</span></div>
+          <div class="mech-line"><span class="ln">6</span><span class="cmt">// ... client stalls the upload for &gt; 1 second ...</span></div>
+          <div class="mech-line"><span class="ln">7</span></div>
+          <div class="mech-line"><span class="ln">8</span><span class="fn">zend_array_destroy</span>(<span class="fn">Z_ARR_P</span>(session_vars));</div>
+          <div class="mech-line"><span class="ln">9</span><span class="cmt">// &larr; arData is freed, but post_bytes_processed still points at it</span></div>
+          <div class="mech-line"><span class="ln">10</span></div>
+          <div class="mech-line"><span class="ln">11</span><span class="fn">ZVAL_LONG</span>(post_bytes_processed, new_bytes);</div>
+          <div class="mech-line mech-bad"><span class="ln">12</span><span class="cmt">// &larr; write through a dangling pointer &rarr; heap corruption &rarr; RCE</span></div>
+        </div>
+        <div class="mech-steps">
+          <div class="mech-steps-head">
+            <span class="mech-steps-title">What happens, step by step</span>
+            <span class="mech-steps-sub">The three-stage attack primitive behind both CVEs</span>
+          </div>
+          <div class="mech-steps-grid">
+            <div class="mech-step">
+              <div class="step-top"><span class="step-num">1</span><span class="step-tag">Arm</span></div>
+              <p>A multipart POST carries a session id plus an upload-progress field. The handler stores raw <code>zval*</code> pointers into the session HashTable.</p>
+            </div>
+            <div class="mech-step">
+              <div class="step-top"><span class="step-num">2</span><span class="step-tag">Free</span></div>
+              <p>The connection pauses past the minimum-frequency threshold, so PHP re-initialises tracking and frees the underlying array &mdash; leaving the cached pointers dangling.</p>
+            </div>
+            <div class="mech-step">
+              <div class="step-top"><span class="step-num">3</span><span class="step-tag">Execute</span></div>
+              <p>Further file chunks on the same socket write through those stale pointers. A 256-byte-filename heap spray lands the freed bucket under attacker control, turning the write into code execution.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- AFFECTED VERSIONS -->
+  <section class="section bg-alt">
+    <div class="container">
+      <div class="section-label">--- AFFECTED VERSIONS</div>
+      <h2 class="section-title">Who is Vulnerable?</h2>
+      <p class="section-desc">
+        PHP versions from <strong>5.4.0 (2012) through 8.5.11</strong> are affected. That is over a decade of PHP releases. End-of-life branches (8.1 and older) have no official vendor patch.
+      </p>
+
+      <div class="version-table-wrap">
+        <table class="version-table">
+          <thead>
+            <tr>
+              <th>Branch</th>
+              <th>Vulnerable</th>
+              <th>Fixed In</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>PHP 8.5</td>
+              <td>&lt; 8.5.12</td>
+              <td><span class="patched">8.5.12</span></td>
+              <td><span class="status-patched">Patched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 8.4</td>
+              <td>&lt; 8.4.27</td>
+              <td><span class="patched">8.4.27</span></td>
+              <td><span class="status-patched">Patched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 8.3</td>
+              <td>&lt; 8.3.36</td>
+              <td><span class="patched">8.3.36</span></td>
+              <td><span class="status-patched">Patched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 8.2</td>
+              <td>&lt; 8.2.35</td>
+              <td><span class="patched">8.2.35</span></td>
+              <td><span class="status-patched">Patched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 8.1</td>
+              <td>All versions</td>
+              <td><span class="eol">No Official Patch</span></td>
+              <td><span class="status-eol">EOL — Unpatched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 8.0</td>
+              <td>All versions</td>
+              <td><span class="eol">No Official Patch</span></td>
+              <td><span class="status-eol">EOL — Unpatched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 7.x</td>
+              <td>All versions</td>
+              <td><span class="eol">No Official Patch</span></td>
+              <td><span class="status-eol">EOL — Unpatched</span></td>
+            </tr>
+            <tr>
+              <td>PHP 5.4+</td>
+              <td>All versions</td>
+              <td><span class="eol">No Official Patch</span></td>
+              <td><span class="status-eol">EOL — Unpatched</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="eol-note">
+        <p><strong>EOL backport available:</strong> The <a href="https://github.com/mpyw/php-eol-CVE-2026-109618-109619" target="_blank" rel="noopener">mpyw/php-eol</a> project provides Docker images for PHP 7.0–8.1 with the fix backported. Images are hosted at <code>ghcr.io/mpyw/php-eol-cve-2026-109618-109619</code> for amd64 and arm64. Note: only this one fix is backported — other vulnerabilities in EOL branches remain unresolved.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- EXPLOIT CHAINS -->
+  <section id="chains" class="section">
+    <div class="container">
+      <div class="section-label">--- EXPLOIT CHAINS</div>
+      <h2 class="section-title">Five Independent Attack Paths</h2>
+      <p class="section-desc">
+        Researchers have identified five distinct exploitation chains. Three are fully public. Two require additional prerequisites. All achieve remote code execution.
+      </p>
+
+      <div class="chain-grid">
+        <div class="chain-card">
+          <div class="chain-header">
+            <span class="chain-id">Chain A</span>
+            <span class="chain-tag tag-public">Public PoC</span>
+          </div>
+          <h3>Session Upload + LFI</h3>
+          <p>Injects code via upload filenames combined with local file inclusion. Requires pre-authentication and an LFI sink in the application.</p>
+          <p class="chain-source">Source: <a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow/php2shell-poc</a> (1.5k &#9733;)</p>
+        </div>
+
+        <div class="chain-card">
+          <div class="chain-header">
+            <span class="chain-id">Chain B</span>
+            <span class="chain-tag tag-public">Public PoC</span>
+          </div>
+          <h3>UAF Handler Overwrite</h3>
+          <p>Overwrites handlers using a variable destruction use-after-free flaw. Needs an <code>unserialize()</code> call reachable in the application. Runs directly on the target.</p>
+          <p class="chain-source">Source: <a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow/php2shell-poc</a> (1.5k &#9733;)</p>
+        </div>
+
+        <div class="chain-card">
+          <div class="chain-header">
+            <span class="chain-id">Chain C</span>
+            <span class="chain-tag tag-public">Public PoC</span>
+          </div>
+          <h3>Serialization Handler Mismatch</h3>
+          <p>Abuses mismatched serialization handlers across directories to trigger destructor methods on FPM workers. Leverages stale background states between requests.</p>
+          <p class="chain-source">Source: <a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow/php2shell-poc</a> (1.5k &#9733;)</p>
+        </div>
+
+        <div class="chain-card">
+          <div class="chain-header">
+            <span class="chain-id">Chain D</span>
+            <span class="chain-tag tag-restricted">Restricted</span>
+          </div>
+          <h3>Zero-Dependency OOM RCE</h3>
+          <p>Described as "zero-dependency pre-auth RCE against any Apache mod_php installation." Relies on OOM corruption via <code>longjmp()</code> without needing any application-level bug. The most dangerous chain — no prerequisites beyond a vulnerable PHP version.</p>
+          <p class="chain-note">PoC requires paid access per the researcher's disclosure policy.</p>
+          <p class="chain-source">Source: <a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow/php2shell-poc</a> (1.5k &#9733;)</p>
+        </div>
+
+        <div class="chain-card">
+          <div class="chain-header">
+            <span class="chain-id">Chain E</span>
+            <span class="chain-tag tag-restricted">Restricted</span>
+          </div>
+          <h3>FPM Session Poisoning</h3>
+          <p>Targets PHP-FPM by combining a session-starting endpoint with any consumer route, leveraging stale background states left between worker requests. Exploits the leftover global variables between worker requests to trigger use-after-free conditions.</p>
+          <p class="chain-note">PoC requires paid access per the researcher's disclosure policy.</p>
+          <p class="chain-source">Source: <a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow/php2shell-poc</a> (1.5k &#9733;)</p>
+        </div>
+
+        <div class="chain-card">
+          <div class="chain-header">
+            <span class="chain-id">UAF Primitive</span>
+            <span class="chain-tag tag-public">Public PoC</span>
+          </div>
+          <h3>Heap Spray + Stale Pointer Write</h3>
+          <p>The foundational primitive: a multipart POST with a progress identifier triggers the callback, which caches pointers. The connection stalls for &gt;1 second, prompting re-initialization that frees the array. Additional file chunks force writes through stale pointers. Heap spray prepends dummy file parts with 256-byte filenames matching the freed bucket structure size.</p>
+          <p class="chain-source">Source: <a href="https://github.com/syrex1013/php2shell" target="_blank" rel="noopener">syrex1013/php2shell</a> (111 &#9733;) &middot; <a href="https://github.com/0x4148/CVE-2026-109618-php2shell-lab" target="_blank" rel="noopener">0x4148/php2shell-lab</a> (23 &#9733;)</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DETECTION -->
+  <section id="detection" class="section bg-alt">
+    <div class="container">
+      <div class="section-label">--- DETECTION</div>
+      <h2 class="section-title">How to Detect PHP2Shell</h2>
+      <p class="section-desc">
+        Multiple detection layers exist: active scanning, passive fingerprinting, SIEM rules, WAF rules, and process monitoring. Use defense in depth.
+      </p>
+
+      <div class="parrot-terminal">
+        <div class="parrot-titlebar">
+          <span class="parrot-dot r"></span>
+          <span class="parrot-dot y"></span>
+          <span class="parrot-dot g"></span>
+          <span class="parrot-title-text">root@sunil:~/php2shell-detection</span>
+        </div>
+        <div class="parrot-menubar">
+          <span class="parrot-menu-item active" data-tab="scanner">scanner.py</span>
+          <span class="parrot-menu-item" data-tab="sigma">sigma.yaml</span>
+          <span class="parrot-menu-item" data-tab="suricata">snort.rules</span>
+          <span class="parrot-menu-item" data-tab="modsec">modsec.conf</span>
+          <span class="parrot-menu-item" data-tab="process">monitor.sh</span>
+        </div>
+        <div class="parrot-body">
+          <div class="parrot-line-numbers" id="parrotLineNums"></div>
+          <div class="parrot-content" id="parrotContent">
+            <div class="parrot-panel active" id="ptab-scanner">
+              <div class="parrot-comment"># Assetnote php2shell-scanner (311 ★)</div>
+              <div class="parrot-comment"># Sends 42-byte control + 3 multipart probes (1–20 MiB)</div>
+              <div class="parrot-comment"># Flags: memory exhaustion, FPM crash, empty 500, unpatched version</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pk">$</span> pip install -r requirements.txt</div>
+              <div><span class="pk">$</span> python3 scanner.py -u https://example.com</div>
+              <div><span class="pk">$</span> python3 scanner.py -l hosts.txt -t 20 -o results.json</div>
+              <div><span class="pk">$</span> python3 scanner.py -u https://example.com --sapi fpm</div>
+              <div><span class="pk">$</span> python3 scanner.py -u https://example.com \</div>
+              <div class="parrot-indent">--path /phpinfo.php \</div>
+              <div class="parrot-indent">-H "Authorization: Bearer token"</div>
+              <div class="parrot-blank"></div>
+              <div class="parrot-warn">⚠ False positive: patched PHP 8.4.27 with memory_limit 2M–32M</div>
+              <div class="parrot-warn">  may produce identical empty HTTP 500. Cross-ref with PHP version.</div>
+            </div>
+            <div class="parrot-panel" id="ptab-sigma">
+              <div class="parrot-comment"># php2shell.yaml — 5 Sigma SIEM rules</div>
+              <div class="parrot-comment"># Source: ikow/php2shell-poc (1.5k ★)</div>
+              <div class="parrot-blank"></div>
+              <div><span class="ps">title:</span> PHP2Shell — PHP Worker Spawning Shell</div>
+              <div><span class="ps">logsource:</span></div>
+              <div class="parrot-indent"><span class="ps">category:</span> process_creation</div>
+              <div class="parrot-indent"><span class="ps">product:</span> linux</div>
+              <div><span class="ps">detection:</span></div>
+              <div class="parrot-indent"><span class="ps">selection:</span></div>
+              <div class="parrot-indent parrot-indent"><span class="ps">ParentImage|endswith:</span></div>
+              <div class="parrot-indent parrot-indent parrot-indent">- '/php-fpm'</div>
+              <div class="parrot-indent parrot-indent parrot-indent">- '/apache2'</div>
+              <div class="parrot-indent parrot-indent"><span class="ps">Image|endswith:</span></div>
+              <div class="parrot-indent parrot-indent parrot-indent">- '/bin/bash'</div>
+              <div class="parrot-indent parrot-indent parrot-indent">- '/usr/bin/curl'</div>
+              <div class="parrot-indent"><span class="ps">condition:</span> selection</div>
+              <div class="parrot-blank"></div>
+              <div><span class="ps">title:</span> PHP2Shell — Suspicious Upload Progress</div>
+              <div class="parrot-indent"><span class="ps">cs-uri-query|contains:</span> 'PHP_SESSION_UPLOAD_PROGRESS'</div>
+            </div>
+            <div class="parrot-panel" id="ptab-suricata">
+              <div class="parrot-comment"># php2shell.rules — 13 Suricata/Snort signatures</div>
+              <div class="parrot-comment"># Source: ikow/php2shell-poc (1.5k ★)</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pr">alert</span> http $EXTERNAL_NET any -> $HOME_NET any (</div>
+              <div class="parrot-indent"><span class="pr">msg:</span>"PHP2Shell — Deeply nested multipart array keys";</div>
+              <div class="parrot-indent"><span class="pr">flow:</span>established,to_server;</div>
+              <div class="parrot-indent"><span class="pr">http.method;</span> content:"POST";</div>
+              <div class="parrot-indent"><span class="pr">http.content_type;</span> content:"multipart/form-data";</div>
+              <div class="parrot-indent"><span class="pr">pcre:</span>"/(\[[^\]]{60,}\]){10,}/R";</div>
+              <div class="parrot-indent"><span class="pr">classtype:</span>attempted-admin;</div>
+              <div class="parrot-indent"><span class="pr">sid:</span>2026109618; <span class="pr">rev:</span>1;</div>
+              <div>)</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pr">alert</span> http $EXTERNAL_NET any -> $HOME_NET any (</div>
+              <div class="parrot-indent"><span class="pr">msg:</span>"PHP2Shell — Upload progress parameter";</div>
+              <div class="parrot-indent"><span class="pr">http.request_body;</span> content:"PHP_SESSION_UPLOAD_PROGRESS";</div>
+              <div class="parrot-indent"><span class="pr">sid:</span>2026109619; <span class="pr">rev:</span>1;</div>
+              <div>)</div>
+            </div>
+            <div class="parrot-panel" id="ptab-modsec">
+              <div class="parrot-comment"># modsecurity.conf — 7 WAF rules</div>
+              <div class="parrot-comment"># Source: ikow/php2shell-poc (1.5k ★)</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pm">SecRule</span> ARGS_NAMES "@contains PHP_SESSION_UPLOAD_PROGRESS" \</div>
+              <div class="parrot-indent">"id:2026109618,phase:2,deny,status:403,\</div>
+              <div class="parrot-indent">msg:'PHP2Shell — Upload progress blocked',\</div>
+              <div class="parrot-indent">severity:'CRITICAL',tag:'CVE-2026-109618'"</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pm">SecRule</span> REQUEST_BODY "@rx (\[[^\]]{60,}\]){10,}" \</div>
+              <div class="parrot-indent">"id:2026109619,phase:2,deny,status:403,\</div>
+              <div class="parrot-indent">msg:'PHP2Shell — Nested array keys blocked',\</div>
+              <div class="parrot-indent">severity:'CRITICAL',tag:'CVE-2026-109619'"</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pm">SecRule</span> REQUEST_HEADERS:Content-Type \</div>
+              <div class="parrot-indent">"@contains multipart/form-data" \</div>
+              <div class="parrot-indent">"id:2026109620,phase:1,chain,deny,status:413"</div>
+            </div>
+            <div class="parrot-panel" id="ptab-process">
+              <div class="parrot-comment"># monitor.sh — PHP worker process watcher</div>
+              <div class="parrot-comment"># Flags: bash, sh, curl, wget, nc, python, perl</div>
+              <div class="parrot-blank"></div>
+              <div><span class="pk">while</span> true; <span class="pk">do</span></div>
+              <div class="parrot-indent">ps aux | grep -E '(php-fpm|apache2|httpd)' | \</div>
+              <div class="parrot-indent parrot-indent">grep -v grep | awk '{print $2}' | \</div>
+              <div class="parrot-indent parrot-indent">xargs -I{} pstree -p {} 2>/dev/null | \</div>
+              <div class="parrot-indent parrot-indent">grep -E '(bash|sh|curl|wget|nc|python|perl)' && \</div>
+              <div class="parrot-indent parrot-indent">echo "[ALERT] Suspicious child at $(date)"</div>
+              <div class="parrot-indent">sleep 5</div>
+              <div><span class="pk">done</span></div>
+              <div class="parrot-blank"></div>
+              <div class="parrot-comment"># Or: process-watcher from syrex1013/php2shell</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Version Checker -->
+      <div class="checker-box">
+        <h3>&#128270; Quick Version Check</h3>
+        <p>Enter your PHP version to check if it is affected:</p>
+        <div class="checker-input-group">
+          <input type="text" id="versionInput" placeholder="e.g. 8.3.6" autocomplete="off">
+          <button onclick="checkVersion()">Check</button>
+        </div>
+        <div id="versionResult"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REMEDIATION -->
+  <section class="section">
+    <div class="container">
+      <div class="section-label">--- REMEDIATION</div>
+      <h2 class="section-title">How to Fix It</h2>
+      <p class="section-desc">
+        The README from ikow/php2shell-poc explicitly warns: <strong>"no INI setting fixes it"</strong> regarding the Zend engine OOM flaw. Upgrading to patched PHP releases remains the only complete solution. However, temporary mitigations reduce exposure.
+      </p>
+
+      <div class="card-grid">
+        <div class="card rem-card priority">
+          <h3>&#9889; Upgrade PHP (Only Complete Fix)</h3>
+          <p>Apply the emergency patch: <strong>8.2.35</strong>, <strong>8.3.36</strong>, <strong>8.4.27</strong>, or <strong>8.5.12+</strong>. This is the only remediation that fully addresses the core engine memory corruption. Do not delay.</p>
+        </div>
+        <div class="card rem-card">
+          <h3>&#128737; Disable Upload Progress</h3>
+          <p>The fastest mitigation — blocking upload progress parameters in multipart bodies offers immediate relief since legitimate usage is rare:</p>
+          <details class="expand-block">
+            <summary><span class="expand-icon">+</span> Show php.ini mitigation</summary>
+            <div class="expand-content">
+<pre><code>; php.ini — immediate mitigation
+session.upload_progress.enabled = Off
+session.use_only_cookies = On</code></pre>
+              <button class="copy-btn">Copy</button>
+            </div>
+          </details>
+        </div>
+        <div class="card rem-card">
+          <h3>&#128737; EOL Backport (PHP 7.0–8.1)</h3>
+          <p>For end-of-life branches, use the backported Docker images from <a href="https://github.com/mpyw/php-eol-CVE-2026-109618-109619" target="_blank" rel="noopener">mpyw/php-eol</a>:</p>
+          <details class="expand-block">
+            <summary><span class="expand-icon">+</span> Show Docker commands</summary>
+            <div class="expand-content">
+<pre><code># Pull patched EOL image
+docker pull ghcr.io/mpyw/php-eol-cve-2026-109618-109619:7.4-fpm-bullseye
+
+# Build locally
+docker buildx build \
+  --build-context patches=./patches \
+  -t php-eol:7.4-cli 7.4/bullseye/cli</code></pre>
+              <button class="copy-btn">Copy</button>
+            </div>
+          </details>
+        </div>
+        <div class="card rem-card">
+          <h3>&#128737; WAF Rules</h3>
+          <p>Deploy the ModSecurity rules above, or use Cloudflare WAF custom rules to filter malicious multipart traffic. For FrankenPHP, disable the mechanism globally via Caddyfile configuration blocks.</p>
+        </div>
+        <div class="card rem-card">
+          <h3>&#128737; Nginx Request Buffering</h3>
+          <p>Keeping nginx request buffering enabled prevents the necessary stall from reaching the FPM process — an additional defense layer that disrupts the timing-dependent exploit primitive.</p>
+        </div>
+        <div class="card rem-card">
+          <h3>&#128737; Network Segmentation</h3>
+          <p>Restrict access to PHP-FPM/CGI ports to trusted load balancers only until patched. Disable <code>expose_php = Off</code> in php.ini to prevent version leakage via HTTP headers.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- LEARNING REPOSITORY -->
+  <section id="learning" class="section bg-alt">
+    <div class="container">
+      <div class="section-label">--- LEARNING REPOSITORY</div>
+      <h2 class="section-title">PHP2Shell Research Archive</h2>
+      <p class="section-desc">
+        A curated collection of verified evidence, PoC repositories, detection tools, and technical references from the security research community. All sources below are real, public GitHub repositories with verifiable content.
+      </p>
+
+      <div class="learning-grid">
+        <div class="learning-card">
+          <div class="learning-icon">&#128293;</div>
+          <h3>PoC Repositories</h3>
+          <ul>
+            <li><a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow/php2shell-poc</a> — 5 RCE chains + detection rules (1.5k &#9733;)</li>
+            <li><a href="https://github.com/eness/php2shell-CVE-2026-109618-CVE-2026-109619-PoC" target="_blank" rel="noopener">eness/php2shell-PoC</a> — Full exploit + analysis (896 &#9733;)</li>
+            <li><a href="https://github.com/syrex1013/php2shell" target="_blank" rel="noopener">syrex1013/php2shell</a> — Heap UAF deep dive (111 &#9733;)</li>
+            <li><a href="https://github.com/junaire/CVE-2026-109618-exploit" target="_blank" rel="noopener">junaire/CVE-2026-109618-exploit</a> — Exploit tool (132 &#9733;)</li>
+            <li><a href="https://github.com/godylockz/cve-2026-109618-php2shell" target="_blank" rel="noopener">godylockz/cve-2026-109618-php2shell</a> — PoC (29 &#9733;)</li>
+            <li><a href="https://github.com/xuehuolll/php2shell-CVE-2026-109618-109619" target="_blank" rel="noopener">xuehuolll/php2shell</a> — ASLR chain + patch analysis (34 &#9733;)</li>
+          </ul>
+        </div>
+
+        <div class="learning-card">
+          <div class="learning-icon">&#128295;</div>
+          <h3>Detection Tools</h3>
+          <ul>
+            <li><a href="https://github.com/assetnote/php2shell-scanner" target="_blank" rel="noopener">assetnote/php2shell-scanner</a> — High-fidelity scanner (311 &#9733;)</li>
+            <li><a href="https://github.com/0x4148/CVE-2026-109618-php2shell-lab" target="_blank" rel="noopener">0x4148/php2shell-lab</a> — Docker lab environment (23 &#9733;)</li>
+            <li>13 Suricata signatures in <code>php2shell.rules</code></li>
+            <li>5 Sigma SIEM rules in <code>php2shell.yaml</code></li>
+            <li>7 ModSecurity WAF rules in <code>modsecurity.conf</code></li>
+          </ul>
+        </div>
+
+        <div class="learning-card">
+          <div class="learning-icon">&#128218;</div>
+          <h3>Technical Analysis</h3>
+          <ul>
+            <li>Heap UAF in <code>php_session_rfc1867_callback()</code> — raw pointer caching in session HashTable</li>
+            <li>OOM <code>longjmp()</code> corruption — Zend engine state corruption on memory limit exceed</li>
+            <li>Heap spray technique — 256-byte filename strings matching freed bucket structure</li>
+            <li>ASLR bypass chain — cookie-based heap base leak + serialization alignment for library offsets</li>
+            <li>Command size limitation — inline payloads max 14 bytes (MAX_CMD = 14), longer commands need chaining</li>
+            <li>Worker rotation — abort current worker for predictable heap state before exploitation</li>
+            <li><a href="https://portswigger.net/research" target="_blank" rel="noopener">PortSwigger Research</a> — Burp Suite &amp; Web Security Academy coverage of PHP interpreter bugs and upload-based RCE chains</li>
+          </ul>
+        </div>
+
+        <div class="learning-card">
+          <div class="learning-icon">&#128737;</div>
+          <h3>Mitigation Resources</h3>
+          <ul>
+            <li><a href="https://github.com/mpyw/php-eol-CVE-2026-109618-109619" target="_blank" rel="noopener">mpyw/php-eol</a> — Backported patches for PHP 7.0–8.1 (41 &#9733;)</li>
+            <li>OpenResty Lua reverse proxy module: <code>php2shell.lua</code></li>
+            <li>Cloudflare WAF custom rule templates</li>
+            <li>FrankenPHP Caddyfile configuration blocks</li>
+            <li>Lighttpd virtual host deny rules for non-upload hosts</li>
+          </ul>
+        </div>
+
+        <div class="learning-card">
+          <div class="learning-icon">&#128202;</div>
+          <h3>Key Facts</h3>
+          <ul>
+            <li><strong>CVSS v4.0:</strong> 9.2 — Critical</li>
+            <li><strong>Affected range:</strong> PHP 5.4.0 (2012) through 8.5.11</li>
+            <li><strong>Attack vector:</strong> Network / Pre-authentication</li>
+            <li><strong>Complexity:</strong> Low — no special conditions needed for Chain D</li>
+            <li><strong>Impact:</strong> Full RCE + privilege escalation</li>
+            <li><strong>Exploit maturity:</strong> Functional public PoCs for 3 of 5 chains</li>
+            <li><strong>Scope:</strong> ~78% of all websites (per ikow/php2shell-poc)</li>
+            <li><strong>Disclosure:</strong> Premature — patches were not ready when details leaked</li>
+          </ul>
+        </div>
+
+        <div class="learning-card">
+          <div class="learning-icon">&#128101;</div>
+          <h3>Community</h3>
+          <ul>
+            <li><a href="https://sunilawesome.in" target="_blank" rel="noopener">sunilawesome.in</a> — Research blog by Sunil Tripathy</li>
+            <li><a href="https://github.com/CyberSunil" target="_blank" rel="noopener">GitHub — CyberSunil</a></li>
+            <li><a href="https://github.com/ikow" target="_blank" rel="noopener">Qi Deng (ikow)</a> — Primary researcher, 5-chain PoC author</li>
+            <li><a href="https://github.com/assetnote" target="_blank" rel="noopener">Assetnote Security Research</a> — Scanner authors</li>
+            <li><a href="https://github.com/syrex1013" target="_blank" rel="noopener">syrex1013</a> — Heap UAF analysis</li>
+            <li><a href="https://github.com/mpyw" target="_blank" rel="noopener">mpyw</a> — EOL backport maintainer</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="evidence-box">
+        <div class="evidence-head">
+          <span class="evidence-kicker">&#128269; COLLECTED EVIDENCE</span>
+          <h3>At a Glance</h3>
+          <p>Every figure below is sourced from the public repositories linked throughout this page and cross-checked against the official PHP security advisories.</p>
+        </div>
+        <div class="evidence-grid tilt-grid" id="evidenceGrid">
+          <div class="stat-card stat-red tilt-card" data-count="14" data-suffix=" yrs">
+            <span class="stat-icon">&#9888;</span>
+            <span class="stat-value"><span class="count">0</span></span>
+            <span class="stat-label">Affected window &middot; PHP 5.4.0 &rarr; 8.5.11</span>
+          </div>
+          <div class="stat-card stat-green tilt-card" data-count="12" data-prefix="8.5." data-suffix="+">
+            <span class="stat-icon">&#10003;</span>
+            <span class="stat-value"><span class="count">0</span></span>
+            <span class="stat-label">Patched &middot; 8.2.35 / 8.3.36 / 8.4.27 / 8.5.12</span>
+          </div>
+          <div class="stat-card stat-blue tilt-card" data-count="2" data-suffix=" CVEs">
+            <span class="stat-icon">&#128280;</span>
+            <span class="stat-value"><span class="count">0</span></span>
+            <span class="stat-label">CVE-2026-109618 (OOM) &middot; CVE-2026-109619 (UAF)</span>
+          </div>
+          <div class="stat-card stat-purple tilt-card" data-count="0" data-static="9.2">
+            <span class="stat-icon">&#9760;</span>
+            <span class="stat-value">9.2</span>
+            <span class="stat-label">CVSS v4.0 &middot; Critical severity</span>
+          </div>
+          <div class="stat-card stat-red tilt-card" data-count="5" data-suffix=" chains">
+            <span class="stat-icon">&#9876;</span>
+            <span class="stat-value"><span class="count">0</span></span>
+            <span class="stat-label">Exploit paths &middot; 3 public PoC</span>
+          </div>
+          <div class="stat-card stat-blue tilt-card" data-count="25" data-suffix=" rules">
+            <span class="stat-icon">&#128737;</span>
+            <span class="stat-value"><span class="count">0</span></span>
+            <span class="stat-label">Detection &middot; Suricata + Sigma + ModSec</span>
+          </div>
+          <div class="stat-card stat-yellow tilt-card" data-count="78" data-suffix="%">
+            <span class="stat-icon">&#127760;</span>
+            <span class="stat-value"><span class="count">0</span></span>
+            <span class="stat-label">Of websites exposed &middot; per ikow research</span>
+          </div>
+          <div class="stat-card stat-green tilt-card" data-count="0" data-static="1 line">
+            <span class="stat-icon">&#9881;</span>
+            <span class="stat-value">1 line</span>
+            <span class="stat-label">Mitigation &middot; session.upload_progress.enabled = Off</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <span class="footer-mark">PHP2SHELL</span>
+          <p>A defensive reference for CVE-2026-109618 and CVE-2026-109619: the heap use-after-free in PHP session upload progress, the five exploit chains, and the fixes that actually close them.</p>
+        </div>
+        <div class="footer-col">
+          <h4>On this page</h4>
+          <a href="#about">Overview</a>
+          <a href="#chains">Exploit chains</a>
+          <a href="#detection">Detection</a>
+          <a href="#learning">Research archive</a>
+        </div>
+        <div class="footer-col">
+          <h4>Primary sources</h4>
+          <a href="https://github.com/ikow/php2shell-poc" target="_blank" rel="noopener">ikow / php2shell-poc</a>
+          <a href="https://github.com/assetnote/php2shell-scanner" target="_blank" rel="noopener">Assetnote scanner</a>
+          <a href="https://github.com/mpyw/php-eol-CVE-2026-109618-109619" target="_blank" rel="noopener">EOL backport images</a>
+        </div>
+        <div class="footer-col">
+          <h4>Author</h4>
+          <a href="https://sunilawesome.in" target="_blank" rel="noopener">sunilawesome.in</a>
+          <a href="https://github.com/CyberSunil" target="_blank" rel="noopener">github.com/CyberSunil</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span>Built by Sunil Tripathy (CyberSunil) &middot; Independent Security Researcher</span>
+        <span>Educational and defensive use only. Verify every rule against the source before deploying it.</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>
