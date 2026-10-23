@@ -460,8 +460,9 @@
             <summary><span class="expand-icon">+</span> Show php.ini mitigation</summary>
             <div class="expand-content">
 <pre><code>; php.ini — immediate mitigation
-session.upload_progress.enabled = Off
-session.use_only_cookies = On</code></pre>
+session.upload_progress.enabled = 0
+memory_limit = -1
+fatal_error_backtraces = 0</code></pre>
               <button class="copy-btn">Copy</button>
             </div>
           </details>
